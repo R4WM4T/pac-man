@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>PAKMAN</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css?family=Press+Start+2P" rel="stylesheet">
+    <style>
+
+        body {
+            font-family: 'Press Start 2P', cursive;
+            background-color: rgb(92, 80, 80);
+        }
+        #hpDiv{
+            float: left;
+            top: 5px;
+            left: 5px;
+        }
+        #title{
+            margin: 30px;
+        }
+        #scoreDiv{
+            float: right;
+        }
+        .vie{
+            background: url('vie.png') 0 / cover;
+        }
+        .vie, .full{
+            width: 20px;
+            height: 21px;
+            display: inline-block;
+        }
+        .vie.full{
+            background: url('vie-full.png') 0 / cover;
+        }
+        #game{
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            z-index: -2;
+            /*background: url('level1.png')  no-repeat left top;*/
+        }
+        #game * {
+            position:absolute;
+            width:48px;
+            height:48px;
+        }
+        .mur{
+            background: url('mur.png') no-repeat left top;
+        }
+        .sol{
+            background: url('sol.png') no-repeat left top;
+            z-index: -1;
+        }
+        .bonus{
+            background: url('bonus.png') no-repeat left top;
+        }
+        .diams{
+            background: url('diamant.png') no-repeat left top;
+            animation: sprite2 .8s steps(2) infinite;
+        }
+        .pac{
+            background: url('pac.png') no-repeat left top;
+            animation:  sprite4 .8s steps(4) infinite;
+        }
+        .fantome{
+            animation:  sprite3 .8s steps(3) infinite;
+        }
+        .fantome.freeze{
+            background: url('f-freeze.png') no-repeat left top;
+            animation: sprite3 .8s steps(3) infinite; /* infinite */
+        }
+        #f1{
+            background: url('f1.png') no-repeat left top;
+        }
+        #f2{
+            background: url('f2.png') no-repeat left top;
+        }
+        #f3{
+            background: url('f3.png') no-repeat left top;
+        }
+        #f4{
+            background: url('f4.png') no-repeat left top;
+        }
+        #f5{
+            background: url('f5.png') no-repeat left top;
+        }
+        #f1.freeze{
+            background: url('f-freeze.png') no-repeat left top;
+        }
+        #f2.freeze{
+            background: url('f-freeze.png') no-repeat left top;
+        }
+        #f3.freeze{
+            background: url('f-freeze.png') no-repeat left top;
+        }
+        #f4.freeze{
+            background: url('f-freeze.png') no-repeat left top;
+        }
+        #f5.freeze{
+            background: url('f-freeze.png') no-repeat left top;
+        }
+        /*
+            Etapes des animations. Mode d'emploi:
+            pr une spriteSheet à 2 frames (comme 'diamant.png') utiliser sprite2 dans animations et mettre step(2)
+            pr 3 frames comme 'f1.png' utiliser sprite3 et step(3).....etc.
+        */
+
+        @keyframes sprite2 {
+                100% { background-position-x: -96px; } /* -tailleCase * 2 */
+        }
+        @keyframes sprite3 {
+                100% { background-position-x: -144px; } /* -tailleCase * 3 */
+        }
+        @keyframes sprite4 {
+                100% { background-position-x: -192px; } /* -tailleCase * 4 */
+        }
+
+    </style>
+    <script src="jquery.js"></script>
+    <script src="functions.js"></script>
+</head>
+
+<body>
+        <div id="container">
+                <div id="hpDiv">
+                    <div class="vie full"></div>
+                    <div class="vie full"></div>
+                    <div class="vie full"></div>
+                </div>
+                <h2 id="title">PAC-MAN</h2>
+                <div id="scoreDiv">SCORE: <span id="score">0</span></div>
+                <div id="game"></div>
+         </div>
+    <script>
+
+        var fps = 1000 / 30;
+        var tailleCase = 48;
+        var vitesseMax = 6; // pour le round du surCase() !! Sinon possibilité qu'un obj passe a travers les murs
+
+        var pac = {
+                position: [0, 0],
+                positionDepart: [0, 0],
+                direction: 's',
+                nextDirection: 's'
+        };
+
+        var fantomes = []; // array de fantomes
+
+        var freeze = false; // mode ou Pac peut manger les fantomes
+        var freezeTime = 5000;
+        var freezeTO; // stocker le freeze timeOut
+        var fantomeCombo = 50; // score des fantomes, multiplié par 2 à chaque fantome mangé dans 1 freezeTime
+
+        var score = 0;
+
+        var directions = {// tableau de conversion
+                h: [0, -1],
+                d: [1, 0],
+                b: [0, 1],
+                g: [-1, 0],
+                s: [0, 0]
+        };
+
+        // @option permet à l'IA des fantomes de ne jamais revenir en arrière si possible (et a pac de changer directement de direction sans avoir à attendre la prochaine case comme dn le vrai)
+        var directionsInverses = {
+                h: 'b',
+                d: 'g',
+                b: 'h',
+                g: 'd',
+                s: 's'
+        };
+
+        var bg = {// @option pr les sprites directions => position y du bg en fonction de la direction
+                h: 0,
+                d: -96,
+                b: -144,
+                g: -48
+        };
+
+        var speedP = 5;
+        var speedF = 5;
+
+        imageToMap('map.png',onLoad);
+
+        function onLoad(map){
+
+            var fId = 1;
+
+            for(var x=0; x<map.length; x++){
+                for(var y=0; y<map[x].length; y++){
+
+                    var elements = [];
+                    var position = {left:x*tailleCase, top:y*tailleCase};
+                    
+                    //mur ou sol?
+                    if(map[x][y]==0){
+                        elements.push($('<div class="mur"></div>').css(position));
+                    } else{
+                        elements.push($('<div class="sol x' + x + ' y' + y + '"></div>').css(position));
+                    }
+
+                    ///bonus
+                    if(map[x][y]== 2){
+                        elements.push($('<div class="bonus"></div>').css(position));
+                    }
+
+                    ////diamant
+                    if(map[x][y]== 4){
+                        elements.push($('<div class="diams"></div>').css(position));
+                    }
+
+                    ///fantomes ennemis
+                    if(map[x][y]== 1){
+                        elements.push($('<div id="f' + fId + '" class="fantome"></div>').css(position));
+                        fantomes.push({id: fId, position: [x * tailleCase, y * tailleCase], direction: 's'});
+                        fId++;
+                    }
+
+                    ////PAC
+                    if(map[x][y]== 5){
+                        elements.push($('<div class="pac"></div>').css(position));
+                        pac.position = [x * tailleCase, y * tailleCase];
+                        pac.positionDepart = [x * tailleCase, y * tailleCase];
+                    }
+
+                    $('#game').append(elements);
+                }
+            }
+
+            //-----------------------------
+            // BOUCLE DE RENDU
+            //-----------------------------
+
+            setInterval(function () {
+                if (surCase(pac.position)) { // si #pac est pile sur une case
+
+                    // check si cases libres
+                    var casesLibres = checkCases(pac.position);
+
+                    if (casesLibres[pac.nextDirection] == 1) {
+                        // change direction
+                        pac.direction = pac.nextDirection;
+                        $('.pac').css({backgroundPositionY: bg[pac.direction]}); // @option sprite pr changement de dir
+                        pac.nextDirection = 's';
+
+                    } else if (!casesLibres[pac.direction]) {
+                        // face à un mur stoppe mvt
+                        pac.direction = 's';
+                    }
+                
+                } else if (pac.nextDirection == directionsInverses[ pac.direction ]) {
+                    // @option prends en compte le mvt de pac directement
+                    pac.direction = pac.nextDirection;
+                    $('.pac').css({backgroundPositionY: bg[pac.direction]}); // @option sprite pr changement de dir
+                    pac.nextDirection = 's';
+                }
+
+                // applique mvt
+                pac.position[0] += directions[pac.direction][0] * speedP;
+                pac.position[1] += directions[pac.direction][1] * speedP;
+                move($('.pac'), pac.position);
+
+
+
+
+                //-----------------------------
+                //    Mouvements fantomes
+                //-----------------------------
+
+                fantomes.forEach(function (fantome) {
+
+                    if (surCase(fantome.position)) {
+
+                        casesLibres = checkCases(fantome.position);
+                        var dirPossibles = [];
+
+                        // créer un array de directions libres
+                        for (prop in casesLibres) {
+                            if (casesLibres[prop]) {
+                                dirPossibles.push(prop);
+                            }
+                        }
+
+                        var nbDirPossible = dirPossibles.length;
+
+                        // @option pr simplifier on peut faire dir aleatoire sans enlever la dir inverse
+                        if (nbDirPossible > 1) {
+                            // si au moins 2 solutions
+                            // enlève la direction inverse à l'actuelle du tableau
+                            var dirInverse = directionsInverses[fantome.direction];
+                            dirPossibles.splice(dirPossibles.indexOf(dirInverse), 1);
+
+                            fantome.direction = dirPossibles[ Math.floor(Math.random() * dirPossibles.length) ];
+
+                        } else {
+                            // prends la seule solution possible
+                            fantome.direction = dirPossibles[0];
+                        }
+
+                        fantome.direction = dirPossibles[ Math.floor(Math.random() * dirPossibles.length) ];
+                        //$('#f' + fantome.id).css({backgroundPositionY: bg[fantome.direction]}); // @option sprite pr changement de dir
+                    }
+
+                    fantome.position[0] += directions[fantome.direction][0] * speedF;
+                    fantome.position[1] += directions[fantome.direction][1] * speedF;
+                    move($('#f' + fantome.id), fantome.position);
+                });
+
+                //-----------------------------
+                //    Collision de pac avec le jeu
+                //-----------------------------
+
+                var collider = testCollision($('.pac'), $('.bonus, .fantome, .diams'));
+            
+                if (collider.hasClass('bonus')) {
+
+                    collider.removeClass('bonus'); // removeClass 500% + rapide que remove() !!
+                    score += 10;
+                    if ($('.bonus').length == 0) {
+                        speedF = 0;
+                        alert('You Win !!');
+                    }
+
+                } else if (collider.hasClass('diams')) {
+
+                    score += 20;
+                    collider.removeClass('diams');
+                    freeze = true;
+                    speedF = 3;
+                    $('.fantome').addClass('freeze');
+                    $('#f1').addClass('freeze');
+                    $('#f2').addClass('freeze');
+                    $('#f3').addClass('freeze');
+                    $('#f4').addClass('freeze');
+                    $('#f5').addClass('freeze');
+
+                    clearTimeout(freezeTO); // pr pouvoir additionner les timeouts
+
+                    freezeTO = setTimeout(function () {
+                        freeze = false;
+                        $('.freeze').removeClass('freeze');
+                        fantomeCombo = 0;
+                        speedF = 5;
+
+                    }, freezeTime);
+
+                } else if (collider.hasClass('fantome')) {
+
+                    if (freeze) {
+                        collider.remove();
+                        score += fantomeCombo;
+                        fantomeCombo *= 2;
+                    } else {
+                        if ($('.vie.full').length > 1) {
+                            $('.vie.full').last().removeClass('full');
+                            pac.direction = 's';
+                            pac.nextDirection = 's';
+                            pac.position = [pac.positionDepart[0], pac.positionDepart[1]];
+                            move($('.pac'), pac.position);
+
+                        } else {
+                            alert('Game Over !');
+                            window.location.reload();
+                        }
+                    }
+                }
+
+                $('#scoreDiv').text(score); // score update
+
+            }, fps);
+
+        }
+
+        function move(elm, pos) {
+                var x = pos[0];
+                var y = pos[1];
+                elm.css({left: x, top: y});
+        }
+
+        addEventListener("keydown", function (e) {
+            switch (e.keyCode) {
+                case 39: // droite
+                    e.preventDefault(); // a mettre ici sinon preventDefault() tout les raccourcis habituels
+                    pac.nextDirection = 'd';
+                    break;
+                case 37: // gauche
+                    e.preventDefault();
+                    pac.nextDirection = 'g';
+                    break;
+                case 38: // haut
+                    e.preventDefault();
+                    pac.nextDirection = 'h';
+                    break;
+                case 40: // bas
+                    e.preventDefault();
+                    pac.nextDirection = 'b';
+                    break;
+            }
+        });
+
+    </script>
+</body>
+
+</html>
